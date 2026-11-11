@@ -49,7 +49,7 @@ class PipelineStack(Stack):
             build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml")
         )
 
-        # 4. Pipeline Definition using secret_value_from_json
+        # 4. Pipeline Definition using POLL trigger to avoid webhook creation error
         source_output = codepipeline.Artifact("SourceOutput")
         build_output = codepipeline.Artifact("BuildOutput")
 
@@ -67,6 +67,7 @@ class PipelineStack(Stack):
                             repo="FleetPulse",
                             branch="main",
                             oauth_token=github_token_secret.secret_value_from_json("token"),
+                            trigger=codepipeline_actions.GitHubTrigger.POLL,
                             output=source_output
                         )
                     ]
