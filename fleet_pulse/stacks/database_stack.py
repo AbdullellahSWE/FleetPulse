@@ -40,10 +40,11 @@ class DatabaseStack(Stack):
         )
 
         # Aurora PostgreSQL Serverless v2 Cluster
+        # Aurora PostgreSQL Serverless v2 Cluster
         self.db_cluster = rds.DatabaseCluster(
             self, "FleetPulseAuroraCluster",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_4
+                version=rds.AuroraPostgresEngineVersion.VER_15_8
             ),
             credentials=rds.Credentials.from_secret(self.db_secret),
             writer=rds.ClusterInstance.serverless_v2("WriterInstance"),
