@@ -1,6 +1,5 @@
 from aws_cdk import (
     Stack,
-    Duration,
     RemovalPolicy,
     aws_ec2 as ec2,
     aws_rds as rds,
@@ -13,7 +12,7 @@ class DatabaseStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Database Admin Credentials Secret
+        # 1. Database Admin Credentials Secret
         self.db_secret = secretsmanager.Secret(
             self, "FleetPulseDbSecret",
             secret_name="fleetpulse-db-credentials",
@@ -24,7 +23,7 @@ class DatabaseStack(Stack):
             )
         )
 
-        # Database Security Group
+        # 2. Database Security Group
         db_sg = ec2.SecurityGroup(
             self, "FleetPulseDbSecurityGroup",
             vpc=vpc,
@@ -32,19 +31,18 @@ class DatabaseStack(Stack):
             allow_all_outbound=False
         )
 
-        # Allow inbound access from VPC CIDR
+        # Allow inbound PostgreSQL access from inside the VPC
         db_sg.add_ingress_rule(
             peer=ec2.Peer.ipv4(vpc.vpc_cidr_block),
             connection=ec2.Port.tcp(5432),
             description="Allow PostgreSQL access from inside VPC"
         )
 
-        # Aurora PostgreSQL Serverless v2 Cluster
-        # Aurora PostgreSQL Serverless v2 Cluster
+        # 3. Aurora PostgreSQL Serverless v2 Cluster using explicit valid version string
         self.db_cluster = rds.DatabaseCluster(
             self, "FleetPulseAuroraCluster",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_8
+                version=rds.AuroraPostgresEngineVersion.of("16.3", "16")
             ),
             credentials=rds.Credentials.from_secret(self.db_secret),
             writer=rds.ClusterInstance.serverless_v2("WriterInstance"),
@@ -58,7 +56,7 @@ class DatabaseStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # cdk-nag Suppressions
+        # 4. cdk-nag Security & Compliance Suppressions
         NagSuppressions.add_stack_suppressions(self, [
             {"id": "AwsSolutions-RDS6", "reason": "IAM Database Authentication disabled for PoC deployment."},
             {"id": "AwsSolutions-RDS10", "reason": "Deletion protection disabled for PoC deployment testing."},
