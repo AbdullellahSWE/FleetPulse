@@ -12,7 +12,7 @@ class DatabaseStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Database Admin Credentials Secret
+        # 1. Database Admin Credentials Secret
         self.db_secret = secretsmanager.Secret(
             self, "FleetPulseDbSecret",
             secret_name="fleetpulse-db-credentials",
@@ -23,7 +23,7 @@ class DatabaseStack(Stack):
             )
         )
 
-        # Database Security Group
+        # 2. Database Security Group
         db_sg = ec2.SecurityGroup(
             self, "FleetPulseDbSecurityGroup",
             vpc=vpc,
@@ -38,14 +38,26 @@ class DatabaseStack(Stack):
             description="Allow PostgreSQL access from inside VPC"
         )
 
-        # Aurora PostgreSQL Serverless v2 Cluster using default engine version
+        # 3. Explicit Parameter Group for Aurora PostgreSQL 16
+        parameter_group = rds.ClusterParameterGroup(
+            self, "FleetPulseAuroraParamGroup",
+            engine=rds.DatabaseClusterEngine.aurora_postgres(
+                version=rds.AuroraPostgresEngineVersion.VER_16_3
+            ),
+            description="Cluster parameter group for FleetPulse Aurora PostgreSQL v2"
+        )
+
+        # 4. Aurora PostgreSQL Serverless v2 Cluster
         self.db_cluster = rds.DatabaseCluster(
             self, "FleetPulseAuroraCluster",
-            engine=rds.DatabaseClusterEngine.AURORA_POSTGRESQL,
+            engine=rds.DatabaseClusterEngine.aurora_postgres(
+                version=rds.AuroraPostgresEngineVersion.VER_16_3
+            ),
             credentials=rds.Credentials.from_secret(self.db_secret),
             writer=rds.ClusterInstance.serverless_v2("WriterInstance"),
             serverless_v2_min_capacity=0.5,
             serverless_v2_max_capacity=4.0,
+            parameter_group=parameter_group,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[db_sg],
@@ -54,7 +66,7 @@ class DatabaseStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # cdk-nag Security & Compliance Suppressions
+        # 5. cdk-nag Security & Compliance Suppressions
         NagSuppressions.add_stack_suppressions(self, [
             {"id": "AwsSolutions-RDS6", "reason": "IAM Database Authentication disabled for PoC deployment."},
             {"id": "AwsSolutions-RDS10", "reason": "Deletion protection disabled for PoC deployment testing."},
