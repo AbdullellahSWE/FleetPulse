@@ -44,19 +44,23 @@ class StreamingStack(Stack):
         self.archive_bucket.grant_read_write(firehose_role)
         self.telemetry_stream.grant_read(firehose_role)
 
-        # Explicitly grant all necessary stream inspection and read permissions for Firehose source
-        firehose_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=[
-                    "kinesis:DescribeStream",
-                    "kinesis:DescribeStreamSummary",
-                    "kinesis:GetRecords",
-                    "kinesis:GetShardIterator",
-                    "kinesis:ListShards"
-                ],
-                resources=[self.telemetry_stream.stream_arn]
-            )
+        # Explicitly grant stream inspection and read permissions for Firehose source
+        kinesis_policy = iam.Policy(
+            self, "FirehoseKinesisAccessPolicy",
+            statements=[
+                iam.PolicyStatement(
+                    actions=[
+                        "kinesis:DescribeStream",
+                        "kinesis:DescribeStreamSummary",
+                        "kinesis:GetRecords",
+                        "kinesis:GetShardIterator",
+                        "kinesis:ListShards"
+                    ],
+                    resources=[self.telemetry_stream.stream_arn]
+                )
+            ]
         )
+        firehose_role.attach_inline_policy(kinesis_policy)
 
         self.firehose_delivery_stream = kinesisfirehose.CfnDeliveryStream(
             self, "TelemetryFirehose",
@@ -76,6 +80,9 @@ class StreamingStack(Stack):
                 compression_format="GZIP"
             )
         )
+        # Ensure IAM policy is fully attached before Firehose creation is evaluated
+        self.firehose_delivery_stream.node.add_dependency(kinesis_policy)
+        self.firehose_delivery_stream.node.add_dependency(firehose_role)
 
         # 4. SQS Queue & Dead Letter Queue (DLQ) for dispatch event handling with SSL enforced
         dlq = sqs.Queue(
