@@ -1,85 +1,92 @@
 from aws_cdk import (
     Stack,
-    SecretValue,
-    aws_codebuild as codebuild,
+    RemovalPolicy,
     aws_codepipeline as codepipeline,
-    aws_codepipeline_actions as cpactions,
-    aws_ecr as ecr,
+    aws_codepipeline_actions as codepipeline_actions,
+    aws_codebuild as codebuild,
+    aws_s3 as s3,
     aws_iam as iam,
-    aws_kms as kms,
+    aws_secretsmanager as secretsmanager,
 )
 from cdk_nag import NagSuppressions
 from constructs import Construct
 
 class PipelineStack(Stack):
-    def __init__(
-        self, scope: Construct, construct_id: str, 
-        telemetry_repo: ecr.IRepository, 
-        dispatch_repo: ecr.IRepository, 
-        **kwargs
-    ) -> None:
+    def __init__(self, scope: Construct, construct_id: str, telemetry_repo, dispatch_repo, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        source_output = codepipeline.Artifact("SourceOutput")
-        cb_key = kms.Key(self, "CodeBuildKey", enable_key_rotation=True)
+        # Artifact bucket with enforced encryption and SSL
+        artifact_bucket = s3.Bucket(
+            self, "PipelineArtifactBucket",
+            bucket_name=f"fleetpulse-pipeline-artifacts-{self.account}-{self.region}",
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True
+        )
+
+        # Retrieve GitHub token secret created earlier in Secrets Manager
+        github_token_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "ImportedGitHubToken", "github-token"
+        )
+
+        # CodeBuild project for building and pushing microservices
+        build_role = iam.Role(
+            self, "CodeBuildProjectRole",
+            assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com")
+        )
+        telemetry_repo.grant_pull_push(build_role)
+        dispatch_repo.grant_pull_push(build_role)
 
         build_project = codebuild.PipelineProject(
             self, "FleetPulseBuildProject",
-            project_name="fleetpulse-ci-build",
-            encryption_key=cb_key,
+            project_name="fleetpulse-build",
+            role=build_role,
             environment=codebuild.BuildEnvironment(
                 build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
                 privileged=True
             ),
-            environment_variables={
-                "TELEMETRY_ECR_URI": codebuild.BuildEnvironmentVariable(value=telemetry_repo.repository_uri),
-                "DISPATCH_ECR_URI": codebuild.BuildEnvironmentVariable(value=dispatch_repo.repository_uri),
-                "AWS_ACCOUNT_ID": codebuild.BuildEnvironmentVariable(value=self.account),
-                "AWS_DEFAULT_REGION": codebuild.BuildEnvironmentVariable(value=self.region),
-            },
             build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml")
         )
 
-        telemetry_repo.grant_pull_push(build_project)
-        dispatch_repo.grant_pull_push(build_project)
-        build_project.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["inspector2:StartCodeSecurityScan", "inspector2:GetCodeSecurityScanResults"],
-                resources=["*"]
-            )
-        )
+        # CodePipeline definition
+        source_output = codepipeline.Artifact("SourceOutput")
+        build_output = codepipeline.Artifact("BuildOutput")
 
-        codepipeline.Pipeline(
+        self.pipeline = codepipeline.Pipeline(
             self, "FleetPulsePipeline",
-            pipeline_name="fleetpulse-cicd-pipeline",
+            pipeline_name="fleetpulse-ci-cd-pipeline",
+            artifact_bucket=artifact_bucket,
             stages=[
                 codepipeline.StageProps(
                     stage_name="Source",
                     actions=[
-                        cpactions.GitHubSourceAction(
+                        codepipeline_actions.GitHubSourceAction(
                             action_name="GitHub_Source",
                             owner="AbdullellahSWE",
                             repo="FleetPulse",
                             branch="main",
-                            oauth_token=SecretValue.secrets_manager("github-token"),
+                            oauth_token=github_token_secret.secret_value,
                             output=source_output
                         )
                     ]
                 ),
                 codepipeline.StageProps(
-                    stage_name="Build_Scan_Push",
+                    stage_name="Build",
                     actions=[
-                        cpactions.CodeBuildAction(
-                            action_name="Build_Container_Images",
+                        codepipeline_actions.CodeBuildAction(
+                            action_name="Docker_Build_Push",
                             project=build_project,
-                            input=source_output
+                            input=source_output,
+                            outputs=[build_output]
                         )
                     ]
                 )
             ]
         )
 
+        # cdk-nag Security & Compliance Suppressions
         NagSuppressions.add_stack_suppressions(self, [
-            {"id": "AwsSolutions-S1", "reason": "Access logging optional for transient pipeline artifact bucket."},
-            {"id": "AwsSolutions-IAM5", "reason": "CodeBuild and CodePipeline default execution roles require wildcard scoping for build logs and ECR pushing."},
+            {"id": "AwsSolutions-S1", "reason": "Access logging optional for pipeline artifact bucket."},
+            {"id": "AwsSolutions-IAM5", "reason": "CodeBuild ECR push permissions require wildcard image tags."},
         ])
