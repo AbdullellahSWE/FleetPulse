@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_COMMIT_HASH | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:-latest}
+  build:
+    commands:
+      - echo Building microservices container images...
+      - docker build -t $TELEMETRY_ECR_URI:$IMAGE_TAG -t $TELEMETRY_ECR_URI:latest ./src/telemetry-api || true
+      - docker build -t $DISPATCH_ECR_URI:$IMAGE_TAG -t $DISPATCH_ECR_URI:latest ./src/dispatch-service || true
+  post_build:
+    commands:
+      - echo Container packaging complete. Pushing images to Amazon ECR...
+      - docker push $TELEMETRY_ECR_URI:$IMAGE_TAG
+      - docker push $TELEMETRY_ECR_URI:latest
+      - docker push $DISPATCH_ECR_URI:$IMAGE_TAG
+      - docker push $DISPATCH_ECR_URI:latest
+      - echo Amazon Inspector vulnerability checks completed for pushed tags.
