@@ -8,7 +8,6 @@ from fleet_pulse.stacks.database_stack import DatabaseStack
 from fleet_pulse.stacks.streaming_stack import StreamingStack
 from fleet_pulse.stacks.pipeline_stack import PipelineStack
 from fleet_pulse.stacks.auth_stack import AuthStack
-from fleet_pulse.stacks.ai_agent_stack import AiAgentStack
 from fleet_pulse.stacks.observability_stack import ObservabilityStack
 
 app = cdk.App()
@@ -38,11 +37,6 @@ auth_stack = AuthStack(
     env=env
 )
 
-ai_agent_stack = AiAgentStack(
-    app, "FleetPulseAiAgentStack",
-    env=env
-)
-
 observability_stack = ObservabilityStack(
     app, "FleetPulseObservabilityStack",
     env=env
@@ -55,7 +49,6 @@ pipeline_stack = PipelineStack(
     env=env
 )
 
-# Apply cdk-nag security checks across all stacks
-cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
+cdk.Aspects.of(app).add(AwsSolutionsChecks())
 
 app.synth()

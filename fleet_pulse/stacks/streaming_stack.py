@@ -53,9 +53,6 @@ class StreamingStack(Stack):
                 kinesis_stream_arn=self.telemetry_stream.stream_arn,
                 role_arn=firehose_role.role_arn
             ),
-            delivery_stream_encryption_configuration_input=kinesisfirehose.CfnDeliveryStream.DeliveryStreamEncryptionConfigurationInputProperty(
-                key_type="AWS_OWNED_CMK"
-            ),
             extended_s3_destination_configuration=kinesisfirehose.CfnDeliveryStream.ExtendedS3DestinationConfigurationProperty(
                 bucket_arn=self.archive_bucket.bucket_arn,
                 role_arn=firehose_role.role_arn,
@@ -125,11 +122,6 @@ class StreamingStack(Stack):
         NagSuppressions.add_stack_suppressions(self, [
             {"id": "AwsSolutions-S1", "reason": "Access logging optional for PoC archive bucket."},
             {"id": "AwsSolutions-IAM5", "reason": "Firehose S3 write permissions require wildcard bucket scoping."},
-        ])
-
-# cdk-nag Security & Compliance Suppressions
-        NagSuppressions.add_stack_suppressions(self, [
-            {"id": "AwsSolutions-S1", "reason": "Access logging optional for PoC archive bucket."},
-            {"id": "AwsSolutions-IAM5", "reason": "Firehose S3 write permissions require wildcard bucket scoping."},
             {"id": "AwsSolutions-KDS3", "reason": "AWS managed KMS key used for Kinesis stream encryption to optimize costs."},
+            {"id": "AwsSolutions-KDF1", "reason": "Firehose with KinesisStreamAsSource relies on Kinesis Data Stream encryption."},
         ])
