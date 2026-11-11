@@ -38,8 +38,8 @@ class DatabaseStack(Stack):
             description="Allow PostgreSQL access from inside VPC"
         )
 
-        # 3. Explicit Parameter Group for Aurora PostgreSQL 16
-        parameter_group = rds.ClusterParameterGroup(
+        # 3. Parameter Group bound to Aurora PostgreSQL 16 family
+        parameter_group = rds.ParameterGroup(
             self, "FleetPulseAuroraParamGroup",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
                 version=rds.AuroraPostgresEngineVersion.VER_16_3
