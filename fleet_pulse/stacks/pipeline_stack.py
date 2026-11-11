@@ -15,7 +15,7 @@ class PipelineStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, telemetry_repo, dispatch_repo, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Artifact bucket with enforced encryption and SSL
+        # 1. Artifact bucket with enforced encryption and SSL
         artifact_bucket = s3.Bucket(
             self, "PipelineArtifactBucket",
             bucket_name=f"fleetpulse-pipeline-artifacts-{self.account}-{self.region}",
@@ -25,12 +25,12 @@ class PipelineStack(Stack):
             auto_delete_objects=True
         )
 
-        # Retrieve GitHub token secret created earlier in Secrets Manager
+        # 2. Retrieve GitHub token secret dynamically from Secrets Manager
         github_token_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "ImportedGitHubToken", "github-token"
         )
 
-        # CodeBuild project for building and pushing microservices
+        # 3. CodeBuild project for building microservices
         build_role = iam.Role(
             self, "CodeBuildProjectRole",
             assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com")
@@ -49,7 +49,7 @@ class PipelineStack(Stack):
             build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml")
         )
 
-        # CodePipeline definition
+        # 4. Pipeline Definition using secret_value_from_json
         source_output = codepipeline.Artifact("SourceOutput")
         build_output = codepipeline.Artifact("BuildOutput")
 
@@ -66,7 +66,7 @@ class PipelineStack(Stack):
                             owner="AbdullellahSWE",
                             repo="FleetPulse",
                             branch="main",
-                            oauth_token=github_token_secret.secret_value,
+                            oauth_token=github_token_secret.secret_value_from_json("token"),
                             output=source_output
                         )
                     ]
@@ -85,9 +85,9 @@ class PipelineStack(Stack):
             ]
         )
 
-        # cdk-nag Security & Compliance Suppressions
+        # 5. cdk-nag Compliance Suppressions
         NagSuppressions.add_stack_suppressions(self, [
             {"id": "AwsSolutions-S1", "reason": "Access logging optional for pipeline artifact bucket."},
             {"id": "AwsSolutions-IAM5", "reason": "CodeBuild ECR push permissions require wildcard image tags."},
-            {"id": "AwsSolutions-CB4", "reason": "Service-managed encryption used for CodeBuild project logs/artifacts in PoC environment."},
+            {"id": "AwsSolutions-CB4", "reason": "Service-managed encryption used for CodeBuild logs in PoC environment."},
         ])
