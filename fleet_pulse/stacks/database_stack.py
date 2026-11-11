@@ -43,7 +43,7 @@ class DatabaseStack(Stack):
         self.db_cluster = rds.DatabaseCluster(
             self, "FleetPulseAuroraCluster",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_16_2
+                version=rds.AuroraPostgresEngineVersion.VER_15_4
             ),
             credentials=rds.Credentials.from_secret(self.db_secret),
             writer=rds.ClusterInstance.serverless_v2("WriterInstance"),
