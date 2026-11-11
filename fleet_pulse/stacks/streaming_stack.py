@@ -23,7 +23,6 @@ class StreamingStack(Stack):
         # 1. Kinesis Data Stream for high-frequency EV telemetry ingestion
         self.telemetry_stream = kinesis.Stream(
             self, "TelemetryDataStream",
-            stream_name="fleetpulse-telemetry-stream",
             shard_count=4,
             retention_period=Duration.hours(24)
         )
@@ -44,6 +43,14 @@ class StreamingStack(Stack):
         )
         self.archive_bucket.grant_read_write(firehose_role)
         self.telemetry_stream.grant_read(firehose_role)
+
+        # Explicitly grant DescribeStream permissions required by Firehose validation
+        firehose_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["kinesis:DescribeStream"],
+                resources=[self.telemetry_stream.stream_arn]
+            )
+        )
 
         self.firehose_delivery_stream = kinesisfirehose.CfnDeliveryStream(
             self, "TelemetryFirehose",
