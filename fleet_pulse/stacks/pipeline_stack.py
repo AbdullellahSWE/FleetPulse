@@ -89,4 +89,5 @@ class PipelineStack(Stack):
         NagSuppressions.add_stack_suppressions(self, [
             {"id": "AwsSolutions-S1", "reason": "Access logging optional for pipeline artifact bucket."},
             {"id": "AwsSolutions-IAM5", "reason": "CodeBuild ECR push permissions require wildcard image tags."},
+            {"id": "AwsSolutions-CB4", "reason": "Service-managed encryption used for CodeBuild project logs/artifacts in PoC environment."},
         ])
