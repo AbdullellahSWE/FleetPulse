@@ -44,10 +44,16 @@ class StreamingStack(Stack):
         self.archive_bucket.grant_read_write(firehose_role)
         self.telemetry_stream.grant_read(firehose_role)
 
-        # Explicitly grant DescribeStream permissions required by Firehose validation
+        # Explicitly grant all necessary stream inspection and read permissions for Firehose source
         firehose_role.add_to_policy(
             iam.PolicyStatement(
-                actions=["kinesis:DescribeStream"],
+                actions=[
+                    "kinesis:DescribeStream",
+                    "kinesis:DescribeStreamSummary",
+                    "kinesis:GetRecords",
+                    "kinesis:GetShardIterator",
+                    "kinesis:ListShards"
+                ],
                 resources=[self.telemetry_stream.stream_arn]
             )
         )
