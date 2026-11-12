@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Battery, Thermometer, ShieldAlert, Cpu, Navigation, Zap, RefreshCw } from 'lucide-react';
+import { Battery, Thermometer, ShieldAlert, Cpu, Navigation, Zap, RefreshCw, Lock, LogOut } from 'lucide-react';
 
 const INITIAL_FLEET = [
     { id: 'EV-9402', driver: 'Alex R.', battery: 14.5, temp: 48.2, status: 'Critical', diagnostics: 'High thermal stress detected under heavy acceleration uphill.' },
@@ -8,12 +8,65 @@ const INITIAL_FLEET = [
     { id: 'EV-7721', driver: 'Taylor B.', battery: 91.4, temp: 28.0, status: 'Optimal', diagnostics: 'Regenerative braking active on highway descent.' }
 ];
 
+const COGNITO_REGION = 'us-east-1';
+const COGNITO_CLIENT_ID = '60ljkjaia3u74terhhcto4n076';
+
 export default function FleetPulseDashboard() {
-    const [fleet, setFleet] = useState(INITIAL_FLEET);
+    const [fleet] = useState(INITIAL_FLEET);
     const [selectedVehicle, setSelectedVehicle] = useState(fleet[0]);
     const [aiRecommendation, setAiRecommendation] = useState('');
     const [loading, setLoading] = useState(false);
-    const [apiEndpoint, setApiEndpoint] = useState('http://localhost:8000');
+    const [apiEndpoint, setApiEndpoint] = useState(
+        typeof window !== 'undefined' ? window.location.origin : 'https://d3o21e293sq1am.cloudfront.net'
+    );
+
+    const [idToken, setIdToken] = useState(() => sessionStorage.getItem('fp_id_token') || '');
+    const [operatorEmail, setOperatorEmail] = useState(() => sessionStorage.getItem('fp_email') || 'admin@fleetpulse.io');
+    const [password, setPassword] = useState('');
+    const [authError, setAuthError] = useState('');
+    const [authLoading, setAuthLoading] = useState(false);
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setAuthLoading(true);
+        setAuthError('');
+        try {
+            const res = await fetch(`https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-amz-json-1.1',
+                    'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth'
+                },
+                body: JSON.stringify({
+                    AuthFlow: 'USER_PASSWORD_AUTH',
+                    ClientId: COGNITO_CLIENT_ID,
+                    AuthParameters: {
+                        USERNAME: operatorEmail,
+                        PASSWORD: password
+                    }
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.message || 'Authentication failed');
+            }
+            const token = data.AuthenticationResult.IdToken;
+            sessionStorage.setItem('fp_id_token', token);
+            sessionStorage.setItem('fp_email', operatorEmail);
+            setIdToken(token);
+            setPassword('');
+        } catch (err) {
+            setAuthError(err.message);
+        } finally {
+            setAuthLoading(false);
+        }
+    };
+
+    const handleLogout = () => {
+        sessionStorage.removeItem('fp_id_token');
+        setIdToken('');
+        setAiRecommendation('');
+    };
 
     const analyzeVehicleWithAI = async (vehicle) => {
         setLoading(true);
@@ -21,7 +74,10 @@ export default function FleetPulseDashboard() {
         try {
             const response = await fetch(`${apiEndpoint}/ai/dispatch-assistant`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
                 body: JSON.stringify({
                     vehicle_id: vehicle.id,
                     battery_level: vehicle.battery,
@@ -30,6 +86,10 @@ export default function FleetPulseDashboard() {
                 })
             });
 
+            if (response.status === 401) {
+                handleLogout();
+                throw new Error('Session expired. Please sign in again.');
+            }
             if (!response.ok) {
                 throw new Error(`API Error: ${response.statusText}`);
             }
@@ -37,16 +97,67 @@ export default function FleetPulseDashboard() {
             const data = await response.json();
             setAiRecommendation(data.content);
         } catch (err) {
-            setAiRecommendation(`Failed to fetch AI recommendation: ${err.message}. Make sure port-forwarding or API access is active at ${apiEndpoint}.`);
+            setAiRecommendation(`Failed to fetch AI recommendation: ${err.message}`);
         } finally {
             setLoading(false);
         }
     };
 
+    if (!idToken) {
+        return (
+            <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+                <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+                    <div className="flex items-center gap-3 mb-6">
+                        <Zap className="w-8 h-8 text-amber-400" />
+                        <div>
+                            <h1 className="text-xl font-bold text-white">FleetPulse Operations</h1>
+                            <p className="text-xs text-slate-400">Amazon Cognito Operator Sign-In</p>
+                        </div>
+                    </div>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">Operator Email</label>
+                            <input
+                                type="email"
+                                required
+                                value={operatorEmail}
+                                onChange={(e) => setOperatorEmail(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">Password</label>
+                            <input
+                                type="password"
+                                required
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="••••••••••••"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                            />
+                        </div>
+                        {authError && (
+                            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                                {authError}
+                            </div>
+                        )}
+                        <button
+                            type="submit"
+                            disabled={authLoading}
+                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            <Lock className="w-4 h-4" />
+                            {authLoading ? 'Authenticating...' : 'Sign In with Cognito'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-6">
-            {/* Header */}
-            <header className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
+            <header className="flex flex-wrap justify-between items-center gap-4 mb-8 border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
                     <Zap className="w-8 h-8 text-amber-400" />
                     <div>
@@ -63,15 +174,18 @@ export default function FleetPulseDashboard() {
                         placeholder="API Host URL"
                     />
                     <span className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> EKS Connected
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> TLS + Cognito
                     </span>
+                    <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700"
+                    >
+                        <LogOut className="w-3.5 h-3.5" /> Sign Out
+                    </button>
                 </div>
             </header>
 
-            {/* Main Command Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Left Column: Active Fleet List */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
                         <Navigation className="w-5 h-5 text-indigo-400" /> Active EV Fleet ({fleet.length})
@@ -98,7 +212,6 @@ export default function FleetPulseDashboard() {
                                         {v.status}
                                     </span>
                                 </div>
-
                                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
                                     <div className="flex items-center gap-1">
                                         <Battery className="w-4 h-4 text-emerald-400" /> {v.battery}%
@@ -112,12 +225,10 @@ export default function FleetPulseDashboard() {
                     </div>
                 </div>
 
-                {/* Middle Column: Selected EV Telemetry Diagnostics */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
                         <ShieldAlert className="w-5 h-5 text-amber-400" /> Vehicle Telemetry Inspector
                     </h2>
-
                     {selectedVehicle && (
                         <div className="space-y-6">
                             <div className="bg-slate-900 p-4 rounded-lg border border-slate-800">
@@ -125,8 +236,6 @@ export default function FleetPulseDashboard() {
                                 <div className="text-2xl font-bold text-white">{selectedVehicle.id}</div>
                                 <div className="text-sm text-slate-400">Assigned Driver: {selectedVehicle.driver}</div>
                             </div>
-
-                            {/* Metric Gauge Cards */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-slate-900 p-4 rounded-lg border border-slate-800">
                                     <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
@@ -140,7 +249,6 @@ export default function FleetPulseDashboard() {
                                         ></div>
                                     </div>
                                 </div>
-
                                 <div className="bg-slate-900 p-4 rounded-lg border border-slate-800">
                                     <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
                                         <Thermometer className="w-4 h-4 text-amber-400" /> Battery Temp
@@ -154,16 +262,12 @@ export default function FleetPulseDashboard() {
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Diagnostics Context */}
                             <div className="bg-slate-900 p-4 rounded-lg border border-slate-800">
                                 <div className="text-xs text-slate-400 mb-2">Live Route Diagnostics</div>
                                 <p className="text-sm text-slate-300 leading-relaxed bg-slate-950 p-3 rounded border border-slate-800">
                                     "{selectedVehicle.diagnostics}"
                                 </p>
                             </div>
-
-                            {/* Trigger Button */}
                             <button
                                 onClick={() => analyzeVehicleWithAI(selectedVehicle)}
                                 disabled={loading}
@@ -176,12 +280,10 @@ export default function FleetPulseDashboard() {
                     )}
                 </div>
 
-                {/* Right Column: AI Dispatch Action Center */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex flex-col">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
                         <Cpu className="w-5 h-5 text-indigo-400" /> AI Dispatch Assistant Output
                     </h2>
-
                     <div className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-4 font-mono text-sm overflow-y-auto">
                         {loading ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3">
@@ -199,7 +301,6 @@ export default function FleetPulseDashboard() {
                         )}
                     </div>
                 </div>
-
             </div>
         </div>
     );

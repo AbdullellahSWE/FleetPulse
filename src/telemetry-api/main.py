@@ -1,21 +1,54 @@
 import os
 import httpx
-from fastapi import FastAPI, HTTPException
+import jwt
+from jwt import PyJWKClient
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="FleetPulse Telemetry API")
 
-# Enable CORS for local dev and frontend dashboard access
+ALLOWED_ORIGINS = [
+    "https://d3o21e293sq1am.cloudfront.net",
+    "http://localhost:5173",
+    "http://localhost:8080",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+COGNITO_REGION = os.getenv("COGNITO_REGION", "us-east-1")
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "us-east-1_Et8nMj7du")
+COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "60ljkjaia3u74terhhcto4n076")
+
+JWKS_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+ISSUER = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
+jwks_client = PyJWKClient(JWKS_URL)
+security = HTTPBearer()
+
+def verify_cognito_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=ISSUER,
+            options={"verify_aud": False},
+        )
+        if claims.get("token_use") != "id" or claims.get("aud") != COGNITO_CLIENT_ID:
+            raise HTTPException(status_code=401, detail="Invalid Cognito token claims")
+        return claims
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Unauthorized: {exc}")
 
 class TelemetryAnalysisRequest(BaseModel):
     vehicle_id: str
@@ -32,7 +65,7 @@ def readiness():
     return {"status": "ready"}
 
 @app.post("/ai/dispatch-assistant")
-async def dispatch_assistant(request: TelemetryAnalysisRequest):
+async def dispatch_assistant(request: TelemetryAnalysisRequest, user=Depends(verify_cognito_jwt)):
     if not OPENROUTER_API_KEY:
         raise HTTPException(status_code=500, detail="OpenRouter API Key not configured")
 
