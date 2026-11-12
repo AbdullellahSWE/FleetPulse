@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: telemetry-api
-        image: 194163347210.dkr.ecr.us-east-1.amazonaws.com/fleetpulse/telemetry-api:latest
+        image: 194163347210.dkr.ecr.us-east-1.amazonaws.com/fleetpulse-telemetry-api:latest
         ports:
         - containerPort: 8000
         resources:
