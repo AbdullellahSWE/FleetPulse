@@ -12,11 +12,13 @@ phases:
       - IMAGE_TAG=${COMMIT_HASH:-latest}
       - TELEMETRY_ECR_URI=${TELEMETRY_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-telemetry-api}
       - DISPATCH_ECR_URI=${DISPATCH_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-dispatch-service}
+      - DASHBOARD_ECR_URI=${DASHBOARD_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse/dashboard}
   build:
     commands:
-      - echo Building microservices container images...
+      - echo Building microservices and dashboard container images...
       - docker build -t $TELEMETRY_ECR_URI:$IMAGE_TAG -t $TELEMETRY_ECR_URI:latest ./src/telemetry-api
       - docker build -t $DISPATCH_ECR_URI:$IMAGE_TAG -t $DISPATCH_ECR_URI:latest ./src/dispatch-service
+      - docker build -t $DASHBOARD_ECR_URI:$IMAGE_TAG -t $DASHBOARD_ECR_URI:latest ./src/frontend
   post_build:
     commands:
       - echo Container packaging complete. Pushing images to Amazon ECR...
@@ -24,4 +26,6 @@ phases:
       - docker push $TELEMETRY_ECR_URI:latest
       - docker push $DISPATCH_ECR_URI:$IMAGE_TAG
       - docker push $DISPATCH_ECR_URI:latest
+      - docker push $DASHBOARD_ECR_URI:$IMAGE_TAG
+      - docker push $DASHBOARD_ECR_URI:latest
       - echo Amazon Inspector vulnerability checks completed for pushed tags.
