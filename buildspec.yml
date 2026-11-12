@@ -10,11 +10,14 @@ phases:
       - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_COMMIT_HASH | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:-latest}
+      # تعريف روابط مستودعات ECR بأسماء صحيحة لضمان عدم فراغ المتغيرات
+      - TELEMETRY_ECR_URI=${TELEMETRY_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-telemetry-api}
+      - DISPATCH_ECR_URI=${DISPATCH_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-dispatch-service}
   build:
     commands:
       - echo Building microservices container images...
-      - docker build -t $TELEMETRY_ECR_URI:$IMAGE_TAG -t $TELEMETRY_ECR_URI:latest ./src/telemetry-api || true
-      - docker build -t $DISPATCH_ECR_URI:$IMAGE_TAG -t $DISPATCH_ECR_URI:latest ./src/dispatch-service || true
+      - docker build -t $TELEMETRY_ECR_URI:$IMAGE_TAG -t $TELEMETRY_ECR_URI:latest ./src/telemetry-api
+      - docker build -t $DISPATCH_ECR_URI:$IMAGE_TAG -t $DISPATCH_ECR_URI:latest ./src/dispatch-service
   post_build:
     commands:
       - echo Container packaging complete. Pushing images to Amazon ECR...
