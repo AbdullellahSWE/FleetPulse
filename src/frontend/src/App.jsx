@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Battery, Thermometer, ShieldAlert, Cpu, Navigation, Zap, RefreshCw, Lock, LogOut } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Battery, Thermometer, ShieldAlert, Cpu, Navigation, Zap, RefreshCw, Lock, LogOut, BellRing, ShieldCheck } from 'lucide-react';
 
 const INITIAL_FLEET = [
     { id: 'EV-9402', driver: 'Alex R.', battery: 14.5, temp: 48.2, status: 'Critical', diagnostics: 'High thermal stress detected under heavy acceleration uphill.' },
@@ -12,10 +12,13 @@ const COGNITO_REGION = 'us-east-1';
 const COGNITO_CLIENT_ID = '60ljkjaia3u74terhhcto4n076';
 
 export default function FleetPulseDashboard() {
-    const [fleet] = useState(INITIAL_FLEET);
-    const [selectedVehicle, setSelectedVehicle] = useState(fleet[0]);
+    const [fleet, setFleet] = useState(INITIAL_FLEET);
+    const [selectedVehicleId, setSelectedVehicleId] = useState(INITIAL_FLEET[0].id);
+    const [lastSync, setLastSync] = useState('Live');
     const [aiRecommendation, setAiRecommendation] = useState('');
+    const [snsStatus, setSnsStatus] = useState('');
     const [loading, setLoading] = useState(false);
+    const [snsLoading, setSnsLoading] = useState(false);
     const [apiEndpoint, setApiEndpoint] = useState(
         typeof window !== 'undefined' ? window.location.origin : 'https://d3o21e293sq1am.cloudfront.net'
     );
@@ -25,6 +28,32 @@ export default function FleetPulseDashboard() {
     const [password, setPassword] = useState('');
     const [authError, setAuthError] = useState('');
     const [authLoading, setAuthLoading] = useState(false);
+
+    const selectedVehicle = fleet.find((v) => v.id === selectedVehicleId) || fleet[0];
+
+    useEffect(() => {
+        if (!idToken) return;
+        let active = true;
+        const pollTelemetry = async () => {
+            try {
+                const res = await fetch(`${apiEndpoint}/telemetry/fleet`, {
+                    headers: { 'Authorization': `Bearer ${idToken}` }
+                });
+                if (res.status === 401) {
+                    handleLogout();
+                    return;
+                }
+                if (res.ok && active) {
+                    const data = await res.json();
+                    if (data.vehicles) setFleet(data.vehicles);
+                    setLastSync(new Date().toLocaleTimeString());
+                }
+            } catch (_) {}
+        };
+        pollTelemetry();
+        const timer = setInterval(pollTelemetry, 5000);
+        return () => { active = false; clearInterval(timer); };
+    }, [idToken, apiEndpoint]);
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -47,9 +76,7 @@ export default function FleetPulseDashboard() {
                 })
             });
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.message || 'Authentication failed');
-            }
+            if (!res.ok) throw new Error(data.message || 'Authentication failed');
             const token = data.AuthenticationResult.IdToken;
             sessionStorage.setItem('fp_id_token', token);
             sessionStorage.setItem('fp_email', operatorEmail);
@@ -66,6 +93,34 @@ export default function FleetPulseDashboard() {
         sessionStorage.removeItem('fp_id_token');
         setIdToken('');
         setAiRecommendation('');
+        setSnsStatus('');
+    };
+
+    const triggerSnsAlert = async (vehicle) => {
+        setSnsLoading(true);
+        setSnsStatus('');
+        try {
+            const res = await fetch(`${apiEndpoint}/telemetry/alert-sns`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({
+                    vehicle_id: vehicle.id,
+                    battery_level: vehicle.battery,
+                    temperature_celsius: vehicle.temp,
+                    route_diagnostics: vehicle.diagnostics
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'SNS alert failed');
+            setSnsStatus(`SNS Alert Dispatched (MessageId: ${data.message_id.slice(0, 12)}...)`);
+        } catch (err) {
+            setSnsStatus(`SNS Error: ${err.message}`);
+        } finally {
+            setSnsLoading(false);
+        }
     };
 
     const analyzeVehicleWithAI = async (vehicle) => {
@@ -90,9 +145,7 @@ export default function FleetPulseDashboard() {
                 handleLogout();
                 throw new Error('Session expired. Please sign in again.');
             }
-            if (!response.ok) {
-                throw new Error(`API Error: ${response.statusText}`);
-            }
+            if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
 
             const data = await response.json();
             setAiRecommendation(data.content);
@@ -111,7 +164,7 @@ export default function FleetPulseDashboard() {
                         <Zap className="w-8 h-8 text-amber-400" />
                         <div>
                             <h1 className="text-xl font-bold text-white">FleetPulse Operations</h1>
-                            <p className="text-xs text-slate-400">Amazon Cognito Operator Sign-In</p>
+                            <p className="text-xs text-slate-400">AWS WAF + CloudFront + Cognito Sign-In</p>
                         </div>
                     </div>
                     <form onSubmit={handleLogin} className="space-y-4">
@@ -162,7 +215,7 @@ export default function FleetPulseDashboard() {
                     <Zap className="w-8 h-8 text-amber-400" />
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-white">FleetPulse Operations Command</h1>
-                        <p className="text-sm text-slate-400">Real-Time EV Telemetry & AI Dispatching Platform</p>
+                        <p className="text-sm text-slate-400">Live EV Telemetry Stream ({lastSync}) • OpenRouter AI & SNS Dispatch</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -174,7 +227,7 @@ export default function FleetPulseDashboard() {
                         placeholder="API Host URL"
                     />
                     <span className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> TLS + Cognito
+                        <ShieldCheck className="w-3.5 h-3.5" /> WAF + TLS + Cognito
                     </span>
                     <button
                         onClick={handleLogout}
@@ -188,13 +241,13 @@ export default function FleetPulseDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
                     <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
-                        <Navigation className="w-5 h-5 text-indigo-400" /> Active EV Fleet ({fleet.length})
+                        <Navigation className="w-5 h-5 text-indigo-400" /> Live EV Fleet ({fleet.length})
                     </h2>
                     <div className="space-y-3">
                         {fleet.map((v) => (
                             <div
                                 key={v.id}
-                                onClick={() => setSelectedVehicle(v)}
+                                onClick={() => setSelectedVehicleId(v.id)}
                                 className={`p-4 rounded-lg cursor-pointer border transition-all ${selectedVehicle.id === v.id
                                     ? 'bg-indigo-950/40 border-indigo-500'
                                     : 'bg-slate-900 border-slate-800 hover:border-slate-700'
@@ -230,7 +283,7 @@ export default function FleetPulseDashboard() {
                         <ShieldAlert className="w-5 h-5 text-amber-400" /> Vehicle Telemetry Inspector
                     </h2>
                     {selectedVehicle && (
-                        <div className="space-y-6">
+                        <div className="space-y-5">
                             <div className="bg-slate-900 p-4 rounded-lg border border-slate-800">
                                 <div className="text-xs text-slate-400 mb-1">Target Vehicle</div>
                                 <div className="text-2xl font-bold text-white">{selectedVehicle.id}</div>
@@ -268,14 +321,29 @@ export default function FleetPulseDashboard() {
                                     "{selectedVehicle.diagnostics}"
                                 </p>
                             </div>
-                            <button
-                                onClick={() => analyzeVehicleWithAI(selectedVehicle)}
-                                disabled={loading}
-                                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
-                            >
-                                {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Cpu className="w-5 h-5" />}
-                                Run AI Dispatch Recommendation
-                            </button>
+                            <div className="space-y-2.5">
+                                <button
+                                    onClick={() => analyzeVehicleWithAI(selectedVehicle)}
+                                    disabled={loading}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                                >
+                                    {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Cpu className="w-5 h-5" />}
+                                    Run AI Dispatch Recommendation
+                                </button>
+                                <button
+                                    onClick={() => triggerSnsAlert(selectedVehicle)}
+                                    disabled={snsLoading}
+                                    className="w-full bg-red-600/90 hover:bg-red-500 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                    <BellRing className="w-4 h-4" />
+                                    {snsLoading ? 'Publishing to Amazon SNS...' : 'Dispatch Amazon SNS Critical Alert'}
+                                </button>
+                                {snsStatus && (
+                                    <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 text-center">
+                                        {snsStatus}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
