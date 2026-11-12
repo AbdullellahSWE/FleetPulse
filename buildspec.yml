@@ -10,7 +10,6 @@ phases:
       - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_COMMIT_HASH | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:-latest}
-      # تعريف روابط مستودعات ECR بأسماء صحيحة لضمان عدم فراغ المتغيرات
       - TELEMETRY_ECR_URI=${TELEMETRY_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-telemetry-api}
       - DISPATCH_ECR_URI=${DISPATCH_ECR_URI:-$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/fleetpulse-dispatch-service}
   build:
