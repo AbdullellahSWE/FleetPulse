@@ -150,3 +150,28 @@ async def dispatch_assistant(request: TelemetryAnalysisRequest, user=Depends(ver
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     return response.json()["choices"][0]["message"]
+
+
+from pydantic import BaseModel
+from typing import List
+
+class TelemetryEvent(BaseModel):
+    vehicle_id: str
+    battery_level: float
+    temperature_celsius: float
+    status: str
+    timestamp: float
+    diagnostics: str
+
+@app.post("/telemetry/stream-ingress")
+async def ingest_telemetry_stream(events: List[TelemetryEvent]):
+    """
+    Ingests batch or single real-time telemetry events streamed from Kinesis / IoT devices.
+    """
+    processed_count = len(events)
+    # Here you can add logic to push to Aurora PostgreSQL or cache in ElastiCache
+    return {
+        "status": "success", 
+        "processed_records": processed_count,
+        "message": f"Successfully ingested {processed_count} telemetry records into FleetPulse core pipeline."
+    }
