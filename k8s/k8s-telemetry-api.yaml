@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
       - name: telemetry-api
-        image: 194163347210.dkr.ecr.us-east-1.amazonaws.com/fleetpulse/telemetry-api:latest
+        # ECR URI — matches buildspec.yml TELEMETRY_ECR_URI and telemetry-api.yaml
+        image: 194163347210.dkr.ecr.us-east-1.amazonaws.com/fleetpulse-telemetry-api:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -32,12 +33,23 @@ spec:
             secretKeyRef:
               name: aurora-db-secret
               key: connection-string
+        - name: SNS_ALERT_TOPIC_ARN
+          valueFrom:
+            secretKeyRef:
+              name: sns-alert-secret
+              key: SNS_ALERT_TOPIC_ARN
+              optional: true   # pod still starts even if secret is absent (local dev)
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: COGNITO_CLIENT_ID
+          value: "60ljkjaia3u74terhhcto4n076"
         livenessProbe:
           httpGet:
             path: /health/liveness
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /health/readiness

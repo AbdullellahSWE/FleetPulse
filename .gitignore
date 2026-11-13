@@ -7,3 +7,8 @@ __pycache__
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Frontend build artefacts — never commit these; they are built by CI/CD
+src/frontend/dist/
+src/frontend/node_modules/
+src/frontend/package-lock.json
