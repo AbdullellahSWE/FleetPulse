@@ -48,7 +48,7 @@ export default function FleetPulseDashboard() {
                     if (data.vehicles) setFleet(data.vehicles);
                     setLastSync(new Date().toLocaleTimeString());
                 }
-            } catch (_) {}
+            } catch (_) { }
         };
         pollTelemetry();
         const timer = setInterval(pollTelemetry, 5000);
@@ -100,7 +100,7 @@ export default function FleetPulseDashboard() {
         setSnsLoading(true);
         setSnsStatus('');
         try {
-            const res = await fetch(`${apiEndpoint}/telemetry/alert-sns`, {
+            const res = await fetch('/telemetry/alert-sns', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -113,6 +113,10 @@ export default function FleetPulseDashboard() {
                     route_diagnostics: vehicle.diagnostics
                 })
             });
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Received non-JSON response from server (possible proxy or routing error).");
+            }
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'SNS alert failed');
             setSnsStatus(`SNS Alert Dispatched (MessageId: ${data.message_id.slice(0, 12)}...)`);
@@ -127,7 +131,7 @@ export default function FleetPulseDashboard() {
         setLoading(true);
         setAiRecommendation('');
         try {
-            const response = await fetch(`${apiEndpoint}/ai/dispatch-assistant`, {
+            const response = await fetch('/ai/dispatch-assistant', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -135,20 +139,22 @@ export default function FleetPulseDashboard() {
                 },
                 body: JSON.stringify({
                     vehicle_id: vehicle.id,
-                    battery_level: vehicle.battery,
-                    temperature_celsius: vehicle.temp,
-                    route_diagnostics: vehicle.diagnostics
+                    battery_charge: vehicle.battery,
+                    battery_temp: vehicle.temp
                 })
             });
 
-            if (response.status === 401) {
-                handleLogout();
-                throw new Error('Session expired. Please sign in again.');
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Received non-JSON response from server (possible proxy or routing error).");
             }
-            if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
 
             const data = await response.json();
-            setAiRecommendation(data.content);
+            if (!response.ok) {
+                throw new Error(data.detail || 'API Error');
+            }
+
+            setAiRecommendation(data.recommendation);
         } catch (err) {
             setAiRecommendation(`Failed to fetch AI recommendation: ${err.message}`);
         } finally {
