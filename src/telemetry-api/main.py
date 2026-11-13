@@ -24,7 +24,7 @@ COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "us-east-1_xxxxxxxxx")
 async def verify_cognito_token(authorization: str = Header(None)):
     """Validates the Cognito ID Token sent from the frontend UI."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")        
 
     token = authorization.split(" ")[1]
     try:
@@ -52,7 +52,7 @@ async def get_fleet(user: dict = Depends(verify_cognito_token)):
     """Returns live fleet telemetry. Reads from DB if available, falls back to seed data."""
     try:
         from database import get_fleet_vehicles
-        vehicles = await get_fleet_vehicles()
+        vehicles = get_fleet_vehicles()   # psycopg2 is sync — no await
         if vehicles:
             return {"vehicles": vehicles}
     except Exception:
@@ -66,7 +66,7 @@ async def get_fleet(user: dict = Depends(verify_cognito_token)):
                 "battery": 14.5,
                 "temp": 48.2,
                 "status": "Critical",
-                "diagnostics": "High thermal stress detected under heavy acceleration uphill.",
+                "diagnostics": "High thermal stress detected under heavy acceleration uphill.",       
             },
             {
                 "id": "EV-1088",
@@ -100,7 +100,7 @@ async def get_fleet(user: dict = Depends(verify_cognito_token)):
 
 @app.post("/ai/dispatch-assistant")
 @app.post("/api/ai-dispatch")
-async def ai_dispatch_assistant(request: Request, user: dict = Depends(verify_cognito_token)):
+async def ai_dispatch_assistant(request: Request, user: dict = Depends(verify_cognito_token)):        
     """
     Queries OpenRouter AI to generate real-time vehicle dispatch instructions.
 
@@ -136,7 +136,7 @@ async def ai_dispatch_assistant(request: Request, user: dict = Depends(verify_co
             f"- Battery Level: {battery_level}%\n"
             f"- Battery Temperature: {temperature}\u00b0C\n"
             f"- Route Diagnostics: {route_diagnostics}\n\n"
-            f"Provide a concise, professional thermal stress assessment and precise dispatch "
+            f"Provide a concise, professional thermal stress assessment and precise dispatch "        
             f"recommendation. Include urgency level (Critical / Warning / Optimal), "
             f"recommended action, and risk summary."
         )
@@ -177,12 +177,13 @@ async def ai_dispatch_assistant(request: Request, user: dict = Depends(verify_co
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        raise HTTPException(status_code=500, detail=f"AI Dispatch processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI Dispatch processing error: {str(e)}")        
 
 
 # ── SNS Alert ─────────────────────────────────────────────────────────────────
 
 @app.post("/telemetry/alert-sns")
+@app.post("/alert-sns")
 async def alert_sns(request: Request, user: dict = Depends(verify_cognito_token)):
     """Publishes a critical vehicle alert to the configured AWS SNS topic."""
     sns_topic_arn = os.getenv("SNS_ALERT_TOPIC_ARN")
