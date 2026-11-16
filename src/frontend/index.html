@@ -1,12 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FleetPulse Operations Dashboard</title>
-  </head>
-  <body class="bg-slate-950 text-slate-100">
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FleetPulse Operations Dashboard</title>
+  <!-- Leaflet is bundled via npm (see src/FleetMap.jsx); only theme overrides live here -->
+  <style>
+    /* Dark tiles invert filter for seamless dark theme */
+    .leaflet-dark-tiles {
+      filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+    }
+
+    .leaflet-container {
+      background: #020617 !important;
+      font-family: inherit;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
 </html>

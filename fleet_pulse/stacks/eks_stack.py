@@ -41,6 +41,40 @@ class EksStack(Stack):
             kubectl_layer=kubectl_layer,
         )
 
+        # IRSA: the telemetry API pods assume a scoped IAM role instead of inheriting broad node-role permissions.
+        self.api_service_account = self.cluster.add_service_account(
+            "TelemetryApiServiceAccount", name="telemetry-api", namespace="default"
+        )
+        self.api_service_account.add_to_principal_policy(
+            iam.PolicyStatement(
+                sid="InvokeBedrockModels",
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=[
+                    "arn:aws:bedrock:*::foundation-model/anthropic.*",
+                    f"arn:aws:bedrock:*:{self.account}:inference-profile/*",
+                ],
+            )
+        )
+        self.api_service_account.add_to_principal_policy(
+            iam.PolicyStatement(
+                sid="PublishVehicleAlerts",
+                actions=["sns:Publish"],
+                resources=[f"arn:aws:sns:{self.region}:{self.account}:fleetpulse-vehicle-alerts"],
+            )
+        )
+
+        # CI/CD deploy access: the pipeline's CodeBuild role (fixed name, created in PipelineStack) may run kubectl.
+        # Referenced by ARN string so there is no CloudFormation dependency cycle between the two stacks.
+        deploy_role = iam.Role.from_role_arn(
+            self, "PipelineDeployRole", f"arn:aws:iam::{self.account}:role/fleetpulse-codebuild-role", mutable=False
+        )
+        self.cluster.aws_auth.add_role_mapping(deploy_role, username="codebuild-deployer", groups=["system:masters"])
+
+        # Allow in-VPC CodeBuild (deploy stage) to reach the Kubernetes API server.
+        self.cluster.cluster_security_group.add_ingress_rule(
+            ec2.Peer.ipv4(vpc.vpc_cidr_block), ec2.Port.tcp(443), "Allow VPC workloads (CodeBuild deploy) to reach the EKS API"
+        )
+
         # Suppress cdk-nag findings across EKS cluster constructs and internal provider nested stacks
         NagSuppressions.add_stack_suppressions(
             self,

@@ -32,6 +32,13 @@ class AuthStack(Stack):
             description="Regional dispatch managers with depot access"
         )
 
+        cognito.CfnUserPoolGroup(
+            self, "FleetAdminGroup",
+            user_pool_id=self.user_pool.user_pool_id,
+            group_name="FleetAdmins",
+            description="Fleet administrators (billing, tier changes, all operations)"
+        )
+
         self.user_pool_client = cognito.UserPoolClient(
             self, "FleetPulseWebClient",
             user_pool=self.user_pool,

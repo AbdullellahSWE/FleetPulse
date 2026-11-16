@@ -15,19 +15,25 @@ spec:
       labels:
         app: telemetry-api
     spec:
+      # IRSA: this service account is created by EksStack and carries a scoped role (Bedrock invoke + SNS publish)
+      serviceAccountName: telemetry-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: telemetry-api
-        # ECR URI — matches buildspec.yml TELEMETRY_ECR_URI and telemetry-api.yaml
+        # The deploy stage (buildspec-deploy.yml) rewrites :latest to the immutable commit-SHA tag
         image: 194163347210.dkr.ecr.us-east-1.amazonaws.com/fleetpulse-telemetry-api:latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 8000
         env:
-        - name: OPENROUTER_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openrouter-secret
-              key: OPENROUTER_API_KEY
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
@@ -41,8 +47,19 @@ spec:
               optional: true   # pod still starts even if secret is absent (local dev)
         - name: AWS_REGION
           value: "us-east-1"
+        # Cognito pool this deployment already used (fleetpulse-operators-pool); the API verifies JWT signatures against its JWKS.
+        # To use the CDK-managed pool instead (AuthStack): us-east-1_RSzkeH8eE / client gsk7g17i8igk8t5kv1f0fbp30.
+        - name: COGNITO_USER_POOL_ID
+          value: "us-east-1_Et8nMj7du"
         - name: COGNITO_CLIENT_ID
           value: "60ljkjaia3u74terhhcto4n076"
+        - name: AUTH_DEV_BYPASS
+          value: "false"
+        # Current Claude inference profile (claude-3-haiku reached end of life)
+        - name: BEDROCK_MODEL_ID
+          value: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        - name: CORS_ALLOWED_ORIGINS
+          value: ""   # dashboard is same-origin via nginx; no cross-origin browser access needed
         livenessProbe:
           httpGet:
             path: /health/liveness

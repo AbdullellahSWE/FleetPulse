@@ -1,0 +1,37 @@
+version: 0.2
+
+# Deploy stage: roll the cluster to the exact commit-SHA images produced by the Build stage.
+# Required env (set by the pipeline): IMAGE_TAG, CLUSTER_NAME. Optional: AWS_DEFAULT_REGION.
+phases:
+  install:
+    commands:
+      - curl -sSLo /usr/local/bin/kubectl "https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.0/2024-09-12/bin/linux/amd64/kubectl"
+      - chmod +x /usr/local/bin/kubectl
+      - kubectl version --client
+  pre_build:
+    commands:
+      - test -n "$IMAGE_TAG" || { echo "IMAGE_TAG missing"; exit 1; }
+      - REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+      - aws eks update-kubeconfig --name ${CLUSTER_NAME:-fleetpulse-eks-cluster} --region $REGION
+      - kubectl get nodes
+  build:
+    commands:
+      - echo "Deploying $IMAGE_TAG"
+      # Render manifests with the immutable tag instead of :latest
+      - sed "s#\(fleetpulse-telemetry-api\):latest#\1:${IMAGE_TAG}#" k8s/k8s-telemetry-api.yaml | kubectl apply -f -
+      - sed "s#\(fleetpulse/dashboard\):latest#\1:${IMAGE_TAG}#" k8s/frontend-dashboard.yaml | kubectl apply -f -
+      - kubectl rollout status deployment/telemetry-api --timeout=300s
+      - kubectl rollout status deployment/fleetpulse-dashboard --timeout=300s
+  post_build:
+    commands:
+      - |
+        if [ "$CODEBUILD_BUILD_SUCCEEDING" != "1" ]; then
+          echo "Deploy failed - rolling back to previous revision"
+          kubectl rollout undo deployment/telemetry-api || true
+          kubectl rollout undo deployment/fleetpulse-dashboard || true
+          exit 1
+        fi
+      - kubectl get deployments -o wide
+      - kubectl get pods -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready

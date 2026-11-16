@@ -6,6 +6,8 @@ COPY . .
 RUN npm run build
 
 FROM nginx:alpine
+# Pull in OS package security fixes released after the base image was built (e.g. zlib/libxslt CVEs)
+RUN apk upgrade --no-cache
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80

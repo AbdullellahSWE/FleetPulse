@@ -31,12 +31,31 @@ class PipelineStack(Stack):
         )
 
         # 3. CodeBuild project for building microservices
+        # Fixed role name: EksStack maps this exact ARN into aws-auth so the deploy stage can run kubectl.
         build_role = iam.Role(
             self, "CodeBuildProjectRole",
+            role_name="fleetpulse-codebuild-role",
             assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com")
         )
         telemetry_repo.grant_pull_push(build_role)
         dispatch_repo.grant_pull_push(build_role)
+
+        # Repositories actually used by the deployed workloads + scan-gate permissions
+        for repo_name in ("fleetpulse-telemetry-api", "fleetpulse-dispatch-service", "fleetpulse/dashboard"):
+            repo_arn = f"arn:aws:ecr:{self.region}:{self.account}:repository/{repo_name}"
+            build_role.add_to_policy(iam.PolicyStatement(
+                actions=[
+                    "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+                    "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage",
+                    "ecr:StartImageScan", "ecr:DescribeImageScanFindings", "ecr:DescribeImages",
+                ],
+                resources=[repo_arn],
+            ))
+        build_role.add_to_policy(iam.PolicyStatement(actions=["ecr:GetAuthorizationToken", "sts:GetCallerIdentity"], resources=["*"]))
+        build_role.add_to_policy(iam.PolicyStatement(
+            actions=["eks:DescribeCluster"],
+            resources=[f"arn:aws:eks:{self.region}:{self.account}:cluster/fleetpulse-eks-cluster"],
+        ))
 
         build_project = codebuild.PipelineProject(
             self, "FleetPulseBuildProject",
@@ -47,6 +66,18 @@ class PipelineStack(Stack):
                 privileged=True
             ),
             build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml")
+        )
+
+        # Deploy project: rolls the EKS cluster to the commit-SHA images built above (kubectl via aws-auth mapping)
+        deploy_project = codebuild.PipelineProject(
+            self, "FleetPulseDeployProject",
+            project_name="fleetpulse-deploy",
+            role=build_role,
+            environment=codebuild.BuildEnvironment(build_image=codebuild.LinuxBuildImage.STANDARD_7_0),
+            environment_variables={
+                "CLUSTER_NAME": codebuild.BuildEnvironmentVariable(value="fleetpulse-eks-cluster"),
+            },
+            build_spec=codebuild.BuildSpec.from_source_filename("buildspec-deploy.yml")
         )
 
         # 4. Pipeline Definition using POLL trigger to avoid webhook creation error
@@ -76,10 +107,28 @@ class PipelineStack(Stack):
                     stage_name="Build",
                     actions=[
                         codepipeline_actions.CodeBuildAction(
-                            action_name="Docker_Build_Push",
+                            action_name="Test_Build_Scan_Push",
                             project=build_project,
                             input=source_output,
-                            outputs=[build_output]
+                            outputs=[build_output],
+                            variables_namespace="BuildVars",
+                        )
+                    ]
+                ),
+                codepipeline.StageProps(
+                    stage_name="Deploy",
+                    actions=[
+                        codepipeline_actions.CodeBuildAction(
+                            action_name="Rollout_To_EKS",
+                            project=deploy_project,
+                            input=source_output,
+                            environment_variables={
+                                # Immutable commit-SHA tag exported by the Build stage
+                                "IMAGE_TAG": codebuild.BuildEnvironmentVariable(
+                                    value="#{BuildVars.IMAGE_TAG}",
+                                    type=codebuild.BuildEnvironmentVariableType.PLAINTEXT,
+                                ),
+                            },
                         )
                     ]
                 )
@@ -91,4 +140,5 @@ class PipelineStack(Stack):
             {"id": "AwsSolutions-S1", "reason": "Access logging optional for pipeline artifact bucket."},
             {"id": "AwsSolutions-IAM5", "reason": "CodeBuild ECR push permissions require wildcard image tags."},
             {"id": "AwsSolutions-CB4", "reason": "Service-managed encryption used for CodeBuild logs in PoC environment."},
+            {"id": "AwsSolutions-IAM5", "reason": "Wildcards limited to ECR auth token, STS identity and CodeBuild report/log groups.", "appliesTo": ["Resource::*"]},
         ])

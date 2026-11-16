@@ -8,5 +8,9 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY . .
 
+# Run unprivileged
+RUN useradd --system --uid 10001 --no-create-home fleetpulse
+USER 10001
+
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

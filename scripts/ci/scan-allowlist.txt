@@ -1,0 +1,3 @@
+# CVE ids to ignore in the ECR scan gate, one per line. Every entry MUST have a justification and expiry.
+# Example:
+# CVE-2024-12345   # no fix available upstream; not reachable from our code - revisit 2027-01-31

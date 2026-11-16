@@ -16,6 +16,10 @@ class EcrStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
+        # Repositories already in use by the deployed workloads (names kept so no images move)
+        self.dashboard_repo = ecr.Repository.from_repository_name(self, "DashboardRepo", "fleetpulse/dashboard")
+        self.live_telemetry_repo = ecr.Repository.from_repository_name(self, "LiveTelemetryRepo", "fleetpulse-telemetry-api")
+
         self.dispatch_service_repo = ecr.Repository(
             self, "DispatchServiceRepo",
             repository_name="fleetpulse/dispatch-service",
