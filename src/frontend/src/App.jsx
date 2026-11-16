@@ -40,7 +40,8 @@ import {
   Wrench,
   Radio,
   LocateFixed,
-  Maximize2
+  Maximize2,
+  FileDown
 } from 'lucide-react';
 import FleetMap from './FleetMap.jsx';
 import Login from './Login.jsx';
@@ -441,6 +442,39 @@ export default function FleetPulseDashboard() {
 
   const openAlertCount = alerts.filter((a) => !a.acknowledged).length;
 
+  // Download the Fleet & ESG report as a PDF. fetch() is used (not a plain link) so the Authorization header is sent.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+  const downloadReport = async () => {
+    setPdfBusy(true);
+    setPdfError('');
+    try {
+      const res = await fetch(`${apiEndpoint}/telemetry/reports/fleet.pdf`, { headers: authHeader() });
+      if (res.status === 401) {
+        signOut();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `The report could not be created (HTTP ${res.status}).`);
+      }
+      const blob = await res.blob();
+      if (!blob.size) throw new Error('The server returned an empty report.');
+      const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = match ? match[1] : 'fleetpulse-report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    } catch (err) {
+      setPdfError(err.message);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   // Run AI Dispatch Recommendation
   const runAiDispatch = async () => {
     setLoading(true);
@@ -665,6 +699,14 @@ export default function FleetPulseDashboard() {
             <span className="text-xs text-slate-400 hidden md:inline" title={(session.groups || []).join(', ') || 'no groups'}>
               {session.email}
             </span>
+            <button
+              onClick={downloadReport}
+              disabled={pdfBusy}
+              title="Download the Fleet & ESG report as a PDF"
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-indigo-500/40 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20 disabled:opacity-60 transition"
+            >
+              {pdfBusy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />} PDF report
+            </button>
             <button
               onClick={signOut}
               className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800 transition"
@@ -1230,10 +1272,23 @@ export default function FleetPulseDashboard() {
       {/* ── Tab 6: ESG Offsets (computed server-side from fleet data) ── */}
       {activeTab === 'esg' && (
         <div className="p-6 space-y-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Leaf className="w-5 h-5 text-emerald-400" />
-            Automated ESG Carbon Offset Reporting
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Leaf className="w-5 h-5 text-emerald-400" />
+              Automated ESG Carbon Offset Reporting
+            </h2>
+            <button
+              onClick={downloadReport}
+              disabled={pdfBusy}
+              className="flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white transition shadow-lg shadow-indigo-600/20"
+            >
+              {pdfBusy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+              {pdfBusy ? 'Preparing PDF…' : 'Download PDF report'}
+            </button>
+          </div>
+          {pdfError && (
+            <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2.5">Could not download the report: {pdfError}</p>
+          )}
           {!esg ? (
             analyticsError ? (
               <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">

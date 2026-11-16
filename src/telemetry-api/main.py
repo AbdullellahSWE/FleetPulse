@@ -187,8 +187,15 @@ def compute_esg(fleet: list) -> dict:
     gallons_saved = round(offset / KG_CO2_PER_US_GALLON, 1)
 
     # Scope 2: grid electricity consumed for EV miles
-    ev_kwh = ev_miles * KM_PER_MILE * EV_KWH_PER_KM
+    ev_km = ev_miles * KM_PER_MILE
+    ev_kwh = ev_km * EV_KWH_PER_KM
     scope2_kg = round(ev_kwh * GRID_KG_CO2_PER_KWH, 1)
+
+    # "Net" must compare like with like: diesel CO2 those same EV kilometres would have emitted at the
+    # baseline economy, minus the grid CO2 actually used to charge. (The recorded Scope 1 offset comes from
+    # a different source, so it is reported separately and never mixed into this subtraction.)
+    diesel_kg_per_km = DIESEL_KG_CO2_PER_LITRE * 3.78541 / (ICE_BASELINE_MPG * KM_PER_MILE)
+    modeled_avoided_kg = round(ev_km * diesel_kg_per_km, 1)
 
     fleet_mpg = round(sum(v["current_mpg"] for v in fleet) / n, 1) if n else 0.0
     ev_mpgs = [v["current_mpg"] for v in fleet if v["powertrain_mode"] == "EV_MODE"]
@@ -224,7 +231,9 @@ def compute_esg(fleet: list) -> dict:
         },
         "esg_carbon_offsets": {
             "scope_1_co2_emissions_kg": emitted, "scope_1_co2_offset_kg": offset,
-            "scope_2_grid_co2_kg": scope2_kg, "net_co2_avoided_kg": round(offset - scope2_kg, 1),
+            "scope_2_grid_co2_kg": scope2_kg,
+            "modeled_diesel_co2_avoided_kg": modeled_avoided_kg,
+            "net_co2_avoided_kg": round(modeled_avoided_kg - scope2_kg, 1),
             "diesel_gallons_saved": gallons_saved,
             "trees_planted_offset_equivalent": int(offset / KG_CO2_PER_TREE_YEAR),
             "carbon_credit_value_usd": round(offset / 1000.0 * CARBON_CREDIT_USD_PER_TONNE, 2),
@@ -246,6 +255,36 @@ async def get_mode_split_esg(user: dict = Depends(verify_cognito_token)):
     report = compute_esg(fleet)
     report["data_source"] = source
     return report
+
+
+# ── PDF report ────────────────────────────────────────────────────────────────
+
+@app.get("/telemetry/reports/fleet.pdf")
+@app.get("/api/v1/reports/fleet.pdf")
+async def download_fleet_report(user: dict = Depends(verify_cognito_token)):
+    """Fleet & ESG report as a PDF, built from the same data the dashboard shows."""
+    from fastapi.responses import Response
+    from report import build_fleet_report_pdf
+
+    fleet, source = load_fleet()
+    refresh_alerts(fleet)
+    try:
+        pdf = build_fleet_report_pdf(
+            fleet=fleet,
+            esg=compute_esg(fleet),
+            alerts=alert_engine.list_alerts(200),
+            data_source=source,
+            generated_by=user.get("email"),
+        )
+    except Exception as exc:
+        print(f"PDF report generation failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail="The PDF report could not be generated.")
+    filename = f"fleetpulse-report-{time.strftime('%Y-%m-%d', time.gmtime())}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
 
 
 # ── AI: dispatch directive + conversational assistant (OpenRouter) ───────────

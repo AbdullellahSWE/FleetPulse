@@ -128,6 +128,18 @@ def test_esg_changes_when_data_changes():
     assert main.compute_esg(altered)["esg_carbon_offsets"]["scope_1_co2_offset_kg"] == base["esg_carbon_offsets"]["scope_1_co2_offset_kg"] + 1000.0
 
 
+def test_net_co2_is_a_like_for_like_comparison_and_positive_for_ev_miles():
+    """Regression: net CO2 once subtracted modeled grid CO2 from unrelated recorded offsets and went negative."""
+    o = main.compute_esg(_fleet())["esg_carbon_offsets"]
+    assert o["modeled_diesel_co2_avoided_kg"] > o["scope_2_grid_co2_kg"] > 0
+    assert o["net_co2_avoided_kg"] == round(o["modeled_diesel_co2_avoided_kg"] - o["scope_2_grid_co2_kg"], 1)
+    assert o["net_co2_avoided_kg"] > 0
+    # more EV miles can only increase the net benefit
+    more = _fleet()
+    more[0]["ev_miles_total"] += 10000
+    assert main.compute_esg(more)["esg_carbon_offsets"]["net_co2_avoided_kg"] > o["net_co2_avoided_kg"]
+
+
 def test_lez_enforcement_rate_is_measured():
     fleet = _fleet()
     assert main.compute_esg(fleet)["lez_geo_compliance"]["lez_ev_enforcement_percent"] == 100.0
