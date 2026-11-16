@@ -15,7 +15,7 @@ spec:
       labels:
         app: telemetry-api
     spec:
-      # IRSA: this service account is created by EksStack and carries a scoped role (Bedrock invoke + SNS publish)
+      # Service account created by EksStack (IRSA-ready; used for SNS publish when the role is attached)
       serviceAccountName: telemetry-api
       securityContext:
         runAsNonRoot: true
@@ -34,6 +34,16 @@ spec:
         ports:
         - containerPort: 8000
         env:
+        # AI engine: OpenRouter (the AWS account has no Bedrock model access). Key lives in the openrouter-secret.
+        - name: OPENROUTER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openrouter-secret
+              key: OPENROUTER_API_KEY
+        - name: OPENROUTER_MODEL
+          value: "openai/gpt-4o-mini"
+        - name: OPENROUTER_FALLBACK_MODELS
+          value: "meta-llama/llama-3.3-70b-instruct"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
@@ -55,9 +65,6 @@ spec:
           value: "60ljkjaia3u74terhhcto4n076"
         - name: AUTH_DEV_BYPASS
           value: "false"
-        # Current Claude inference profile (claude-3-haiku reached end of life)
-        - name: BEDROCK_MODEL_ID
-          value: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         - name: CORS_ALLOWED_ORIGINS
           value: ""   # dashboard is same-origin via nginx; no cross-origin browser access needed
         livenessProbe:

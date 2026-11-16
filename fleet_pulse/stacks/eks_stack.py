@@ -41,20 +41,11 @@ class EksStack(Stack):
             kubectl_layer=kubectl_layer,
         )
 
-        # IRSA: the telemetry API pods assume a scoped IAM role instead of inheriting broad node-role permissions.
+        # IRSA: the telemetry API pods can assume a scoped IAM role (SNS publish only) instead of broad node-role permissions.
         self.api_service_account = self.cluster.add_service_account(
             "TelemetryApiServiceAccount", name="telemetry-api", namespace="default"
         )
-        self.api_service_account.add_to_principal_policy(
-            iam.PolicyStatement(
-                sid="InvokeBedrockModels",
-                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                resources=[
-                    "arn:aws:bedrock:*::foundation-model/anthropic.*",
-                    f"arn:aws:bedrock:*:{self.account}:inference-profile/*",
-                ],
-            )
-        )
+        # (AI answers come from OpenRouter, so no Bedrock permissions are granted.)
         self.api_service_account.add_to_principal_policy(
             iam.PolicyStatement(
                 sid="PublishVehicleAlerts",

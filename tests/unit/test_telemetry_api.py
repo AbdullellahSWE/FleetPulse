@@ -154,11 +154,11 @@ def test_dispatch_validation_rejects_bad_input(client):
     assert r.status_code == 422
 
 
-def test_dispatch_surfaces_bedrock_fallback_reason(client, monkeypatch):
-    monkeypatch.setattr(ai, "converse", lambda *a, **k: ai.AiResult(None, ai.ENGINE_SIMULATED, "m", "AccessDeniedException", "IAM role not allowed"))
+def test_dispatch_surfaces_ai_fallback_reason(client, monkeypatch):
+    monkeypatch.setattr(ai, "converse", lambda *a, **k: ai.AiResult(None, ai.ENGINE_SIMULATED, "m", "InvalidApiKey", "OpenRouter rejected the API key"))
     body = client.post("/ai/dispatch-assistant", json={"vehicle_id": "PHEV-9402", "latitude": 41.8819, "longitude": -87.6278}).json()
-    assert body["live"] is False and body["engine"] == "Bedrock-Simulated"
-    assert body["fallback_code"] == "AccessDeniedException" and "IAM" in body["fallback_reason"]
+    assert body["live"] is False and body["engine"] == "Simulated"
+    assert body["fallback_code"] == "InvalidApiKey" and "API key" in body["fallback_reason"]
     assert "simulated" in body["recommendation"].lower()
     assert body["geofence"]["in_lez_zone"] is True  # derived from GPS, not the client flag
 
@@ -217,18 +217,6 @@ def test_change_tier_validates_tier(client):
     assert client.post("/billing/change-tier", json={"tier": "Platinum"}).status_code == 422
     ok = client.post("/billing/change-tier", json={"tier": "Premium"})
     assert ok.status_code == 200 and ok.json()["subscription"]["api_access_enabled"] is True
-
-
-def test_bedrock_error_classification():
-    from botocore.exceptions import ClientError
-
-    def err(code, msg="x"):
-        return ClientError({"Error": {"Code": code, "Message": msg}}, "Converse")
-
-    assert ai.classify_error(err("AccessDeniedException"))[0] == "AccessDeniedException"
-    assert "end of life" in ai.classify_error(err("ResourceNotFoundException"))[1]
-    assert "not enabled" in ai.classify_error(err("ValidationException", "Access to Bedrock models is not allowed for this account"))[1]
-    assert ai.classify_error(ValueError("boom"))[0] == "ValueError"
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────

@@ -305,10 +305,10 @@ export default function FleetPulseDashboard() {
   const [editLezName, setEditLezName] = useState(selectedVehicle.lez_zone_name);
   const [editDiagnostics, setEditDiagnostics] = useState(selectedVehicle.diagnostics);
 
-  // Connectivity & Bedrock AI State
+  // Connectivity & AI State
   const [lastSync, setLastSync] = useState('Live');
   const [aiOutput, setAiOutput] = useState('');
-  const [aiEngine, setAiEngine] = useState('Amazon Bedrock');
+  const [aiEngine, setAiEngine] = useState('OpenRouter');
   const [snsStatus, setSnsStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [snsLoading, setSnsLoading] = useState(false);
@@ -441,8 +441,8 @@ export default function FleetPulseDashboard() {
 
   const openAlertCount = alerts.filter((a) => !a.acknowledged).length;
 
-  // Run Bedrock AI Dispatch Recommendation
-  const runBedrockDispatch = async () => {
+  // Run AI Dispatch Recommendation
+  const runAiDispatch = async () => {
     setLoading(true);
     setAiOutput('');
 
@@ -487,7 +487,7 @@ export default function FleetPulseDashboard() {
         throw new Error(detail || `Request failed (HTTP ${res.status})`);
       }
       setAiOutput(data.recommendation || JSON.stringify(data, null, 2));
-      setAiEngine(data.engine || 'Amazon Bedrock');
+      setAiEngine(data.engine || 'OpenRouter');
       setAiMeta({ live: !!data.live, reason: data.fallback_reason, modelId: data.model_id });
       setApiOnline(true);
     } catch (err) {
@@ -808,23 +808,23 @@ export default function FleetPulseDashboard() {
                 <p className="text-[11px] text-slate-400 mt-1">{selectedVehicle.dtc_description}</p>
               </div>
 
-              {/* Bedrock Dispatch Action */}
+              {/* AI Dispatch Action */}
               <button
-                onClick={runBedrockDispatch}
+                onClick={runAiDispatch}
                 disabled={loading}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 text-xs disabled:opacity-60"
               >
                 {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
-                Analyze Location with Bedrock AI
+                Analyze Location with AI
               </button>
 
-              {/* Bedrock AI Result (shown on the map tab so the analysis is visible right here) */}
+              {/* AI Result (shown on the map tab so the analysis is visible right here) */}
               {(loading || aiOutput) && (
                 <div className="bg-slate-950 border border-indigo-500/30 rounded-xl p-3.5 space-y-2">
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                      Bedrock Location Analysis
+                      AI Location Analysis
                     </span>
                     {aiMeta ? (
                       <EngineBadge live={aiMeta.live} engine={aiEngine} reason={aiMeta.reason} modelId={aiMeta.modelId} />
@@ -1012,12 +1012,12 @@ export default function FleetPulseDashboard() {
             {/* Actions */}
             <div className="space-y-3">
               <button
-                onClick={runBedrockDispatch}
+                onClick={runAiDispatch}
                 disabled={loading}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 disabled:opacity-60"
               >
                 {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5 text-amber-300" />}
-                Run Amazon Bedrock OBD-II &amp; Map AI
+                Run AI OBD-II &amp; Map Analysis
               </button>
 
               <button
@@ -1042,7 +1042,7 @@ export default function FleetPulseDashboard() {
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-400" />
-                Bedrock Dispatch Console
+                AI Dispatch Console
               </h2>
               <span className="text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 px-2.5 py-0.5 rounded-full font-medium">
                 {aiEngine}
@@ -1053,14 +1053,14 @@ export default function FleetPulseDashboard() {
               {loading ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3">
                   <RefreshCw className="w-8 h-8 animate-spin text-indigo-400" />
-                  <span>Synthesizing Bedrock GPS map position &amp; OBD-II diagnostics…</span>
+                  <span>Analyzing GPS map position &amp; OBD-II diagnostics…</span>
                 </div>
               ) : aiOutput ? (
                 <pre className="text-slate-200 whitespace-pre-wrap leading-relaxed">{aiOutput}</pre>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-slate-600 text-center gap-3">
                   <Compass className="w-10 h-10 text-slate-800" />
-                  <p className="text-sm font-semibold text-slate-400">Amazon Bedrock Telematics Engine</p>
+                  <p className="text-sm font-semibold text-slate-400">AI Telematics Engine</p>
                   <p className="text-xs max-w-xs text-slate-500 leading-relaxed">
                     View fleet positions on the Live GPS Map tab or trigger an AI dispatch evaluation above.
                   </p>
@@ -1214,10 +1214,10 @@ export default function FleetPulseDashboard() {
             <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-indigo-400" />
-                Amazon Bedrock Geo-Route Logic
+                AI Geo-Route Logic
               </h3>
               <ul className="text-xs text-slate-400 space-y-2 list-disc pl-5">
-                <li>Bedrock verifies state of charge (&gt;15% required for zone entry).</li>
+                <li>The AI dispatcher verifies state of charge (&gt;15% required for zone entry).</li>
                 <li>Pre-charges high-voltage battery via hybrid generator if below threshold.</li>
                 <li>Locks out ICE fuel injection (PID 5E = 0.0 L/h) upon crossing geofence.</li>
                 <li>Transmits verified zero-emission telemetry to municipal audit logs.</li>

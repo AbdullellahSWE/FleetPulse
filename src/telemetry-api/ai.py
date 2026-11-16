@@ -1,27 +1,30 @@
-"""Amazon Bedrock access (Converse API) with an explicit, visible fallback.
+"""LLM access through OpenRouter (OpenAI-compatible chat completions API).
 
-Every call returns an AiResult. When Bedrock cannot be used the result carries
-engine="Bedrock-Simulated" plus a machine-readable fallback_code and a human
-readable fallback_reason so the UI can show *why* instead of silently
-pretending the model answered.
+Every call returns an AiResult. When the model cannot be used the result carries
+engine="Simulated" plus a machine-readable fallback_code and a human readable
+fallback_reason, so the UI shows *why* instead of silently pretending a model answered.
+
+Configuration (environment):
+  OPENROUTER_API_KEY          required for live answers
+  OPENROUTER_MODEL            primary model            (default openai/gpt-4o-mini)
+  OPENROUTER_FALLBACK_MODELS  comma-separated, tried when the primary is retired/unavailable
 """
 
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
+import httpx
 
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-# claude-3-haiku reached end of life; use a current inference profile (override via env).
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+PRIMARY_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+FALLBACK_MODELS = [m.strip() for m in os.getenv("OPENROUTER_FALLBACK_MODELS", "meta-llama/llama-3.3-70b-instruct").split(",") if m.strip()]
 
-ENGINE_LIVE = "Amazon Bedrock"
-ENGINE_SIMULATED = "Bedrock-Simulated"
+ENGINE_LIVE = "OpenRouter"
+ENGINE_SIMULATED = "Simulated"
 
-_client = None
+# CloudFront gives the origin 30 s to answer, so the model call must finish well inside that.
+HTTP_TIMEOUT = httpx.Timeout(22.0, connect=5.0)
 
 
 @dataclass
@@ -37,59 +40,85 @@ class AiResult:
         return self.engine == ENGINE_LIVE
 
 
-def _bedrock():
-    global _client
-    if _client is None:
-        _client = boto3.client(
-            "bedrock-runtime",
-            region_name=AWS_REGION,
-            config=Config(connect_timeout=5, read_timeout=45, retries={"max_attempts": 2, "mode": "standard"}),
-        )
-    return _client
+def classify_http_error(status: int, message: str, model: str) -> Tuple[str, str, bool]:
+    """Map an OpenRouter HTTP error to (code, human-readable reason, try_next_model)."""
+    message = (message or "")[:160]
+    if status == 401:
+        return "InvalidApiKey", "OpenRouter rejected the API key (invalid or revoked). Update the openrouter-secret.", False
+    if status == 402:
+        return "InsufficientCredits", "The OpenRouter account is out of credits or over its key limit.", False
+    if status == 403:
+        return "Forbidden", f"OpenRouter refused the request: {message}", False
+    if status == 404:
+        return "ModelUnavailable", f"Model '{model}' is no longer available on OpenRouter; set OPENROUTER_MODEL.", True
+    if status == 429:
+        return "RateLimited", "OpenRouter is rate limiting requests; retry shortly.", True
+    if status >= 500:
+        return "ProviderError", f"OpenRouter/provider error (HTTP {status}); retry shortly.", True
+    return f"HTTP{status}", f"OpenRouter returned HTTP {status}: {message}", False
 
 
-def classify_error(exc: Exception) -> tuple:
-    """Map an exception to (code, human-readable reason)."""
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code", "ClientError")
-        message = exc.response.get("Error", {}).get("Message", str(exc))
-        if code == "AccessDeniedException":
-            return code, "The pod's IAM role is not allowed to call bedrock:InvokeModel (grant it in the EKS stack)."
-        if code == "ResourceNotFoundException":
-            return code, f"Model '{BEDROCK_MODEL_ID}' was not found or has reached end of life; set BEDROCK_MODEL_ID."
-        if code == "ThrottlingException":
-            return code, "Bedrock is throttling requests; retry shortly."
-        if code == "ValidationException" and "not allowed for this account" in message:
-            return code, "Bedrock model access is not enabled for this AWS account (enable model access in the Bedrock console)."
-        if code == "ModelNotReadyException":
-            return code, "The model is still warming up; retry shortly."
-        return code, f"{code}: {message[:200]}"
-    if isinstance(exc, BotoCoreError):
-        return type(exc).__name__, f"Could not reach Bedrock: {str(exc)[:200]}"
-    return type(exc).__name__, f"Unexpected error calling Bedrock: {str(exc)[:200]}"
+def _error_message(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+        err = body.get("error", body)
+        return err.get("message", str(err)) if isinstance(err, dict) else str(err)
+    except ValueError:
+        return resp.text[:160]
+
+
+def _call_model(api_key: str, model: str, system: str, messages: List[dict], max_tokens: int, temperature: float):
+    """Returns (text, None) on success or (None, (code, reason, try_next)) on failure."""
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [{"role": "system", "content": system}, *[{"role": m["role"], "content": m["content"]} for m in messages]],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://fleetpulse.local",
+        "X-Title": "FleetPulse",
+    }
+    try:
+        resp = httpx.post(f"{OPENROUTER_BASE_URL}/chat/completions", json=payload, headers=headers, timeout=HTTP_TIMEOUT)
+    except httpx.TimeoutException:
+        return None, ("Timeout", f"Model '{model}' did not answer in time.", True)
+    except httpx.HTTPError as exc:
+        return None, ("NetworkError", f"Could not reach OpenRouter: {type(exc).__name__}", True)
+
+    if resp.status_code != 200:
+        return None, classify_http_error(resp.status_code, _error_message(resp), model)
+    try:
+        text = (resp.json()["choices"][0]["message"]["content"] or "").strip()
+    except (ValueError, KeyError, IndexError, TypeError):
+        text = ""
+    if not text:
+        return None, ("EmptyResponse", f"Model '{model}' returned an empty answer.", True)
+    return text, None
 
 
 def converse(system: str, messages: List[dict], max_tokens: int = 1000, temperature: float = 0.3) -> AiResult:
-    """Call Bedrock. `messages` is [{"role": "user"|"assistant", "content": "text"}, ...]."""
-    try:
-        resp = _bedrock().converse(
-            modelId=BEDROCK_MODEL_ID,
-            system=[{"text": system}],
-            messages=[{"role": m["role"], "content": [{"text": m["content"]}]} for m in messages],
-            inferenceConfig={"maxTokens": max_tokens, "temperature": temperature},
-        )
-        text = "".join(block.get("text", "") for block in resp["output"]["message"]["content"])
-        return AiResult(text=text, engine=ENGINE_LIVE, model_id=BEDROCK_MODEL_ID)
-    except Exception as exc:  # classified, logged, and surfaced to the caller - never swallowed
-        code, reason = classify_error(exc)
-        print(f"Bedrock call failed [{code}]: {exc}")
-        return AiResult(
-            text=None,
-            engine=ENGINE_SIMULATED,
-            model_id=BEDROCK_MODEL_ID,
-            fallback_code=code,
-            fallback_reason=reason,
-        )
+    """Ask the model. `messages` is [{"role": "user"|"assistant", "content": "text"}, ...].
+
+    Tries the primary model, then each fallback model when the failure is model-specific
+    (retired, rate limited, provider error). Auth and credit errors stop immediately."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        return AiResult(None, ENGINE_SIMULATED, PRIMARY_MODEL, "MissingApiKey", "OPENROUTER_API_KEY is not configured on the server.")
+
+    last = ("Unknown", "No model could be reached.")
+    for model in [PRIMARY_MODEL, *[m for m in FALLBACK_MODELS if m != PRIMARY_MODEL]]:
+        text, err = _call_model(api_key, model, system, messages, max_tokens, temperature)
+        if text is not None:
+            return AiResult(text, ENGINE_LIVE, model)
+        code, reason, try_next = err
+        print(f"OpenRouter call failed [{code}] model={model}")  # never log the key or the prompt
+        last = (code, reason)
+        if not try_next:
+            break
+    return AiResult(None, ENGINE_SIMULATED, PRIMARY_MODEL, last[0], last[1])
 
 
 DISPATCH_SYSTEM = (
@@ -123,7 +152,7 @@ def fleet_snapshot(fleet: List[dict], alerts: List[dict]) -> str:
 
 
 def simulated_chat_reply(question: str, fleet: List[dict], alerts: List[dict]) -> str:
-    """Deterministic, data-driven answer used only when Bedrock is unavailable."""
+    """Deterministic, data-driven answer used only when the language model is unavailable."""
     q = question.lower()
     critical = [v for v in fleet if v.get("status") == "Critical" or v.get("dtc_severity") == "CRITICAL"]
     in_lez = [v for v in fleet if v.get("in_lez_zone")]
@@ -145,5 +174,5 @@ def simulated_chat_reply(question: str, fleet: List[dict], alerts: List[dict]) -
         return f"{len(open_alerts)} open alert(s)." + ("".join(f"\n- {a['vehicle_id']}: {a['title']}" for a in open_alerts[:5]))
     return (
         f"Fleet of {len(fleet)} vehicles: {len(critical)} critical, {len(in_lez)} inside a low-emission zone. "
-        "Ask about faults, LEZ status, battery levels or alerts. (Live Bedrock answers are unavailable right now.)"
+        "Ask about faults, LEZ status, battery levels or alerts. (Live AI answers are unavailable right now.)"
     )

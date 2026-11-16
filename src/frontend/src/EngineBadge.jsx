@@ -1,6 +1,6 @@
 import React from 'react';
 
-// Shows whether an AI answer came from a live Bedrock model or from the built-in simulation, and why.
+// Shows whether an AI answer came from a live AI model or from the built-in simulation, and why.
 export default function EngineBadge({ live, engine, reason, modelId }) {
   return (
     <span

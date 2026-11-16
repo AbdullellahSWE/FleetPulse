@@ -248,7 +248,7 @@ async def get_mode_split_esg(user: dict = Depends(verify_cognito_token)):
     return report
 
 
-# ── AI: dispatch directive + conversational assistant (Amazon Bedrock) ───────
+# ── AI: dispatch directive + conversational assistant (OpenRouter) ───────────
 
 def _dispatch_prompt(r: DispatchRequest, zone_name: str, in_lez: bool) -> str:
     return (
@@ -337,7 +337,7 @@ async def ai_chat(req: ChatRequest, user: dict = Depends(verify_cognito_token)):
 
 @app.get("/ai/status")
 async def ai_status(user: dict = Depends(verify_cognito_token)):
-    """Lightweight probe so the UI can show whether live Bedrock is usable (one tiny call)."""
+    """Lightweight probe so the UI can show whether the live AI model is usable (one tiny call)."""
     result = ai.converse("Reply with the single word OK.", [{"role": "user", "content": "ping"}], max_tokens=5, temperature=0.0)
     return {
         "live": result.live, "engine": result.engine, "model_id": result.model_id,
