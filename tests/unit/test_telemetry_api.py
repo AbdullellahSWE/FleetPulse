@@ -195,6 +195,24 @@ def test_alert_endpoints_and_ack(client):
     assert client.post("/alerts/does-not-exist/ack").status_code == 404
 
 
+def test_dashboard_routes_use_prefixes_cloudfront_forwards(client):
+    """CloudFront only forwards /telemetry/*, /ai/* and /health/* with the Authorization header.
+    Every endpoint the dashboard calls must live under one of those prefixes (regression: ESG/alerts 401 via CDN)."""
+    forwarded = ("/telemetry/", "/ai/", "/health/")
+    dashboard_paths = [
+        "/telemetry/fleet", "/telemetry/alerts", "/telemetry/analytics/mode-split-esg",
+        "/telemetry/alert-sns", "/ai/dispatch-assistant", "/ai/chat",
+    ]
+    registered = {getattr(r, "path", "") for r in main.app.routes}
+    for path in dashboard_paths:
+        assert path in registered, f"{path} is not registered"
+        assert path.startswith(forwarded), f"{path} would not be forwarded by CloudFront"
+    assert client.get("/telemetry/alerts").status_code == 200
+    assert client.get("/telemetry/analytics/mode-split-esg").status_code == 200
+    first = client.get("/telemetry/alerts").json()["alerts"][0]["id"]
+    assert client.post(f"/telemetry/alerts/{first}/ack").status_code == 200
+
+
 def test_change_tier_validates_tier(client):
     assert client.post("/billing/change-tier", json={"tier": "Platinum"}).status_code == 422
     ok = client.post("/billing/change-tier", json={"tier": "Premium"})

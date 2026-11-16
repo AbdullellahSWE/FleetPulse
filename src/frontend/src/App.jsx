@@ -350,6 +350,7 @@ export default function FleetPulseDashboard() {
   const [alerts, setAlerts] = useState([]);
   const [alertRules, setAlertRules] = useState([]);
   const [esg, setEsg] = useState(null);
+  const [analyticsError, setAnalyticsError] = useState('');
   const [dataSource, setDataSource] = useState('aurora');
   const [aiMeta, setAiMeta] = useState(null); // {live, reason, modelId}
 
@@ -396,13 +397,19 @@ export default function FleetPulseDashboard() {
         setApiOnline(true);
 
         // Alerts and ESG are secondary; a failure there must not flip the connection status
-        const [alertData, esgData] = await Promise.allSettled([getJson('/api/v1/alerts'), getJson('/api/v1/analytics/mode-split-esg')]);
+        // /telemetry/* is the path prefix CloudFront forwards to the API with the Authorization header
+        const [alertData, esgData] = await Promise.allSettled([getJson('/telemetry/alerts'), getJson('/telemetry/analytics/mode-split-esg')]);
         if (!active) return;
         if (alertData.status === 'fulfilled') {
           setAlerts(alertData.value.alerts || []);
           setAlertRules(alertData.value.rules || []);
         }
-        if (esgData.status === 'fulfilled') setEsg(esgData.value);
+        if (esgData.status === 'fulfilled') {
+          setEsg(esgData.value);
+          setAnalyticsError('');
+        } else {
+          setAnalyticsError(esgData.reason?.message || 'request failed');
+        }
       } catch (err) {
         if (err.unauthorized) signOut();
         else setApiOnline(false);
@@ -420,7 +427,7 @@ export default function FleetPulseDashboard() {
   const acknowledgeAlert = async (alertId) => {
     setAlerts((prev) => prev.map((a) => (a.id === alertId ? { ...a, acknowledged: true } : a))); // optimistic
     try {
-      const res = await fetch(`${apiEndpoint}/api/v1/alerts/${alertId}/ack`, { method: 'POST', headers: authHeader() });
+      const res = await fetch(`${apiEndpoint}/telemetry/alerts/${alertId}/ack`, { method: 'POST', headers: authHeader() });
       if (res.status === 401) signOut();
     } catch (_) {
       /* the next poll restores the server state */
@@ -1126,7 +1133,13 @@ export default function FleetPulseDashboard() {
             PHEV Mode Split &amp; OBD-II Fuel Economy Analytics
           </h2>
           {!esg ? (
-            <p className="text-sm text-slate-400">Loading analytics…</p>
+            analyticsError ? (
+              <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                Could not load analytics: {analyticsError}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-400">Loading analytics…</p>
+            )
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1222,7 +1235,13 @@ export default function FleetPulseDashboard() {
             Automated ESG Carbon Offset Reporting
           </h2>
           {!esg ? (
-            <p className="text-sm text-slate-400">Loading ESG report…</p>
+            analyticsError ? (
+              <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                Could not load the ESG report: {analyticsError}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-400">Loading ESG report…</p>
+            )
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

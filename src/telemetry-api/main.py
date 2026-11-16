@@ -238,6 +238,7 @@ def compute_esg(fleet: list) -> dict:
     }
 
 
+@app.get("/telemetry/analytics/mode-split-esg")
 @app.get("/api/v1/analytics/mode-split-esg")
 @app.get("/analytics/mode-split-esg")
 async def get_mode_split_esg(user: dict = Depends(verify_cognito_token)):
@@ -348,6 +349,9 @@ async def ai_status(user: dict = Depends(verify_cognito_token)):
 
 # ── Alerts (rules engine) & manual SNS dispatch ──────────────────────────────
 
+# Everything the dashboard calls is also exposed under /telemetry/*, the prefix CloudFront forwards to the API
+# with the Authorization header intact (see the distribution's /telemetry/* behavior).
+@app.get("/telemetry/alerts")
 @app.get("/alerts")
 @app.get("/api/v1/alerts")
 async def get_alerts(user: dict = Depends(verify_cognito_token)):
@@ -361,6 +365,7 @@ async def get_alerts(user: dict = Depends(verify_cognito_token)):
     }
 
 
+@app.post("/telemetry/alerts/{alert_id}/ack")
 @app.post("/alerts/{alert_id}/ack")
 @app.post("/api/v1/alerts/{alert_id}/ack")
 async def ack_alert(alert_id: str, user: dict = Depends(verify_cognito_token)):

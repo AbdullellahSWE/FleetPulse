@@ -34,7 +34,8 @@ metadata:
   name: fleetpulse-dashboard
   namespace: default
 spec:
-  type: ClusterIP
+  # LoadBalancer matches the live cluster (there is no ingress controller); ClusterIP here removes the public endpoint.
+  type: LoadBalancer
   ports:
     - port: 80
       targetPort: 80
